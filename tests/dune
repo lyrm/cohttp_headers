@@ -1,0 +1,8 @@
+(executable
+ (name test)
+ (libraries alcotest headers))
+
+(rule
+ (alias runtest)
+ (action
+  (run ./test.exe -e -q --color=always)))
