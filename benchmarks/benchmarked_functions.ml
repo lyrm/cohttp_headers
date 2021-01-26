@@ -33,6 +33,7 @@ let pre_build_headers () =
   in
   (build (module Mmap), build (module Massoc), build (module MassocAlt))
 
+let longheader_halfsize = 20
 let pre_build_longheaders () =
   let build (type a) (module H : Headers.HEADERS with type t = a) : a =
     let rec add_headers n h =
@@ -72,19 +73,20 @@ let build_comparison_with_prebuilt_headers ({ f } : packed) builder =
 
 let tests : test list =
   [
-    { name = "Add"; fs = build_comparison add_empty_header };
+    { name = "Add/EmptyHeaders"; fs = build_comparison add_empty_header };
+    { name = "Add/ShortHeaders"; fs = build_comparison add_empty_header };
     {
-      name = "Add2";
+      name = "Add/LongHeaders.";
       fs =
         build_comparison_with_prebuilt_headers { f = add_long_header }
           pre_build_longheaders;
     };
-    (*{
-      name = "Add3";
-      fs = build_comparison add_empty_header;
+    {
+      name = "Get/ShortHeaders";
+      fs = build_comparison_with_prebuilt_headers { f = get } pre_build_headers;
     };
     {
-      name = "get";
-      fs = build_comparison_with_prebuilt_headers { f = get } pre_build_headers;
-    };*)
+      name = "Get/LongHeaders";
+      fs = build_comparison_with_prebuilt_headers { f = get } pre_build_longheaders;
+    };
   ]

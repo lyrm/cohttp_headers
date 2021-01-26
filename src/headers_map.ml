@@ -122,9 +122,18 @@ let get_multi h k =
   let k = LString.of_string k in
   try StringMap.find k h with Not_found -> []
 
-let map fn h = StringMap.mapi (fun k v -> fn (LString.to_string k) v) h
+(* CHANGE : let map fn h = StringMap.mapi (fun k v -> fn (LString.to_string k) v) h*)
 
-let iter fn h = ignore (map fn h)
+let map (fn : string -> string  -> string) (h : t) : t =
+  StringMap.mapi (fun k v ->
+      let v' : string = fn (LString.to_string k) (String.concat ", " v) in
+      List.map String.trim (String.split_on_char ',' v')
+    ) h
+
+(* CHANGE *)
+let iter fn h : unit =
+  StringMap.iter (fun k v ->
+      fn (LString.to_string k) (String.concat ", " v)) h
 
 let fold fn h acc =
   StringMap.fold
@@ -138,19 +147,21 @@ let to_list h = List.rev (fold (fun k v acc -> (k, v) :: acc) h [])
 
 let header_line k v = Printf.sprintf "%s: %s\r\n" k v
 
-let to_lines h = List.rev (fold (fun k v acc -> header_line k v :: acc) h [])
+let to_lines (h : t) =
+  List.rev (fold (fun k v acc -> header_line k v :: acc) h [])
 
 let to_frames =
   let to_frame k v acc = Printf.sprintf "%s: %s" k v :: acc in
   fun h -> List.rev (fold to_frame h [])
 
 let to_string h =
+  (* Small changes here*)
   let b = Buffer.create 128 in
   h
-  |> iter (fun k v ->
+  |> StringMap.iter (fun k v ->
          v
          |> List.iter (fun v ->
-                Buffer.add_string b k;
+                Buffer.add_string b (LString.to_string k);
                 Buffer.add_string b ": ";
                 Buffer.add_string b v;
                 Buffer.add_string b "\r\n"));

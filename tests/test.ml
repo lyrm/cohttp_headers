@@ -15,4 +15,4 @@
 
 let () = Printexc.record_backtrace true
 
-let () = Alcotest.run "test_header" (Unitary_tests.tests @ Cohttp_tests.tests)
+let () = Alcotest.run "test_header" (Unitary_tests.tests (*@ Invariant_tests @ Cohttp_tests.tests*))

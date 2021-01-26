@@ -1,231 +1,249 @@
-open Utils
-open H
+module Unitary (H : Headers.HEADERS) = struct
+  open Utils
 
-let hstr =
-  [
-    ("accept", "application/xml");
-    ("transfer-encoding", "chunked");
-    ("accept", "text/html");
-    ("content-length", "100");
-  ]
+  (*These tests try as much as possible to tests each functions separately. *)
+  let t_header =
+    Alcotest.testable
+      (fun fmt h ->
+        Fmt.pf fmt "%a"
+          (Fmt.list ~sep:(Fmt.sps 1)
+             (Fmt.pair ~sep:Fmt.comma Fmt.string Fmt.string))
+          (H.to_list h))
+      (fun x y -> H.compare x y = 0)
 
-let header =
-  List.fold_left (fun headers (n, v) -> add headers n v) (init ()) hstr
+  let hstr =
+    [
+      ("accept", "application/xml");
+      ("transfer-encoding", "chunked");
+      ("accept", "text/html");
+      ("content-length", "100");
+    ]
 
-(* Suite test for Http.Header module *)
-(* Tested invariants:
-   - get (add h k v) k = Some v with mem h k = false
-   - get (add h k v) k = Some v with mem h k = true
-*)
-(* Due to implementation differences between cohttp and http/af, there
-   are some interesting tests missing here : if a header can have
-   multiple values, the cohttp [get] function returns a string
-   concatening all values separated by commas whereas the httpaf one
-   returns just the last added value for this header. *)
-let add_get_tests () =
-  Alcotest.(check (option string))
-    "Header.get (Header.add h k v) k = Some v with Header.mem h k = false"
-    (Some "keep-alive")
-    (get (add header "connection" "keep-alive") "connection");
-  Alcotest.(check (option string))
-    "Header.get (Header.add h k v) k = Some v with Header.mem h k = true"
-    (Some "close")
-    (get (add header "connection" "close") "connection")
+  let prebuilt = H.of_list hstr
 
-(* Tested invariants:
-   - mem (init ()) k = false
-   - mem (add (init ()) k v) k = true
-*)
-let mem_tests () =
-  Alcotest.(check bool)
-    "Header.mem (Header.init ()) k = false" false
-    (mem (init ()) "accept");
-  Alcotest.(check bool)
-    "Header.mem (Header.add (Header.init ()) k v) k = true" true
-    (mem (add (init ()) "accept" "text/*") "accept")
+  let hrev = List.rev hstr
 
-(* Tested invariants:
-   - get (add_unless_exists h k v) k = v if mem h k = true
-   - get (add_unless_exists h k v) k = v' if get h k = v'
-*)
-let add_unless_exists_get_tests () =
-  Alcotest.(check (option string))
-    "Header.get (Header.add_unless_exists h k v) k = v if Header.mem h k = true"
-    (Some "close")
-    (get (add_unless_exists header "connection" "close") "connection");
-  Alcotest.(check (option string))
-    "Header.get (Header.add_unless_exists h k v) k = v' if Header.get h k = v'"
-    (Some "chunked")
-    (get
-       (add_unless_exists header "transfer-encoding" "gzip")
-       "transfer-encoding")
+  let to_list_rev h = List.rev (H.to_list h)
 
-(* Tested invariants:
-   - get_multi (add h k n) k = [n] if mem h k = None
-   - get_multi (add h k n) k = vs@[n] if get_multi h k = vs
-*)
-let add_get_multi_tests () =
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add h k n) k = [n] if Header.mem h k = None"
-    [ "keep-alive" ]
-    (get_multi (add header "connection" "keep-alive") "connection");
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add h k n) k = vs@[n] if Header.get_multi h k = \
-     vs"
-    [ "application/xml"; "text/html"; "image/*" ]
-    (get_multi (add header "accept" "image/*") "accept")
+  let to_list_tests () =
+    aessl "to_list (init ())" [] H.(to_list (init ()));
+    aessl "to_list (add (init ()) k v" [ ("a", "a1") ]
+      H.(to_list (add (init ()) "a" "a1"));
+    aessl "to_list (of_list h) = h" hstr H.(to_list prebuilt)
 
-(* Tested invariants:
-   - get_multi (add_multi h k []) k = vs with get_multi h k = vs
-   - get_multi (add_multi h k vs) k = vs with mem h k = false
-   - get_multi (add_multi h k vs) k = vs'@vs with get_multi h k = vs'
-*)
-let add_multi_get_multi_tests () =
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add_multi h k []) k' = vs with Header.get_multi \
-     h k = vs"
-    [ "application/xml"; "text/html" ]
-    (get_multi (add_multi header "a" []) "accept");
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add_multi h k vs) k = vs with Header.mem h k = \
-     false"
-    [ "keep-alive"; "close" ]
-    (get_multi
-       (add_multi header "connection" [ "keep-alive"; "close" ])
-       "connection");
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add_multi h k vs) k = vs'@vs with \
-     Header.get_multi h k = vs' "
-    [ "application/xml"; "text/html"; "image/*"; "application/xhtml" ]
-    (get_multi
-       (add_multi header "accept" [ "image/*"; "application/xhtml" ])
-       "accept")
+  let is_empty_tests () =
+    aeb "is_empty (init ())" true H.(is_empty (init ()));
+    aeb "is_empty (add (init ()) k v" false
+      H.(is_empty (add (init ()) "a" "a1"));
+    aeb "is_empty (remove (add (init ()) k v) k)" true
+      H.(is_empty (remove (add (init ()) "a" "a1") "a"))
 
-(* Tested invariants
-  - get_multi (add_list h [k, v; k', v']) k'' = [] if mem h k'' = false
-  - get_multi (add_list h [k, v; k', v']) k = vs@[v] if get_multi h k = vs
-  - get_multi (add_list h [k, v; k, v']) k = vs@[v;v'] if get_multi h k = vs
-*)
-let add_list_get_multi_tests () =
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add_list h [k, v; k', v']) k'' = [] if \
-     Header.mem h k'' = false"
-    []
-    (get_multi
-       (add_list (init ())
-          [ ("transfer-encoding", "chunked"); ("connection", "close") ])
-       "accept");
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add_list h [k, v; k', v']) k = vs@[v] if \
-     Header.get_multi h k = vs "
-    [ "application/xml"; "text/html"; "image/*" ]
-    (get_multi
-       (add_list header [ ("accept", "image/*"); ("connection", "close") ])
-       "accept");
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.add_list h [k, v; k, v']) k = vs@[v;v'] if \
-     Header.get_multi h k = vs "
-    [ "application/xml"; "text/html"; "image/*"; "application/*" ]
-    (get_multi
-       (add_list header [ ("accept", "image/*"); ("accept", "application/*") ])
-       "accept")
+  (* [init_with l] *)
+  let init_with_tests () =
+    aessl "init_with k v"
+      [ ("transfer-encoding", "chunked") ]
+      H.(to_list (init_with "traNsfer-eNcoding" "chunked"))
 
-(* Tested invariants
-   - to_list (init ())
-   - to_list (of_list h) has the same elements than h
-*)
-(* The overall order is not the same since cohttp used a map structure
-   for headers where http/af use an associative list.
-  *)
-let to_list_tests () =
-  Alcotest.(check (list (pair string string)))
-    "Header.to_list (Header.init ())" []
-    (to_list (init ()));
-  Alcotest.(check bool)
-    "Header.to_list (Header.of_list h) has the same elements than h." true
-    (List.fold_left
-       (fun acc elt -> List.mem elt hstr && acc)
-       true (to_list header))
+  let mem_tests () =
+    aeb "mem (init ()) k = false" false H.(mem (init ()) "a");
+    aeb "mem h k" true H.(mem prebuilt "accept");
+    aeb "mem h k" true H.(mem prebuilt "content-length");
+    aeb "mem h k" false H.(mem prebuilt "a")
 
-(* Tested invariants:
-   - mem (remove h n) n = false if get_multi h n = []
-   - mem (remove h n) n = false if get_multi h n = [v]
-   - mem (remove h n) n = false if get_multi h n = vs
-   - mem (remove h n) n' = true if mem h n' = true
-*)
-let remove_mem_tests () =
-  Alcotest.(check bool)
-    "Header.mem (Header.remove h n) n = false if Header.get_multi h n = []"
-    false
-    (mem (remove header "connection") "connection");
-  Alcotest.(check bool)
-    "Header.mem (Header.remove h n) n = false if Header.get_multi h n = [v]"
-    false
-    (mem (remove header "transfer-encoding") "transfer-encoding");
-  Alcotest.(check bool)
-    "Header.mem (Header.remove h n) n = false if Header.get_multi h n = vs"
-    false
-    (mem (remove header "accept") "accept");
-  Alcotest.(check bool)
-    "Header.mem (Header.remove h n) n' = true if Header.mem h n' = true" true
-    (mem (remove header "accept") "transfer-encoding")
+  let add_tests () =
+    aessl "add h k v"
+      (hstr @ [ ("a", "a1") ])
+      H.(to_list (add prebuilt "a" "a1"));
+    aessl "add (add h k v) k v"
+      (hstr @ [ ("a", "a1"); ("a", "a1") ])
+      H.(to_list (add (add prebuilt "a" "a1") "a" "a1"));
+    aessl "add (add h k' v') k v"
+      (hstr @ [ ("a", "a1"); ("b", "b1") ])
+      H.(to_list (add (add prebuilt "a" "a1") "b" "b1"))
 
-(* Tested invariants:
-   - get_multi (replace h k v) k = [] if [get_multi h v] = []
-   - get_multi (replace h k v) k = [v] if [get_multi h v] = _ :: _
-*)
-let replace_tests () =
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.replace h k v) k = [] if Header.mem h k = false"
-    []
-    (get_multi (replace header "connection" "close") "connection");
-  Alcotest.(check (list string))
-    "Header.get_multi (Header.replace h k v) k = v if Header.mem h k = true"
-    [ "gzip" ]
-    (get_multi (replace header "transfer-encoding" "gzip") "transfer-encoding")
+  let get_tests () =
+    aeso "get (add (init () k v) k" (Some "a1")
+      H.(get (add (init ()) "a" "a1") "a");
+    aeso "get (add h k v) k when mem h k = false" (Some "a1")
+      H.(get (add prebuilt "a" "a1") "a");
+    aeso "get (add h k v) k when mem h k = true" (Some "text/html")
+      H.(get (add prebuilt "a" "a1") "accept");
+    aeso "get (add (add h k v') k v) k = v" (Some "a2")
+      H.(get (add (add prebuilt "a" "a1") "a" "a2") "a")
 
-(* Tested invariants
-   - compare (to_list l) (add_list (init ()) l) = 0
+  (* [add_list h l] is h with l at the end. It is the same than
+     adding each element in l one by one in order. *)
+  let add_list_tests () =
+    let l = [ ("a", "a1"); ("b", "b1") ] in
+    aessl "add_list (init ()) []" [] H.(to_list (add_list (init ()) []));
+    aessl "add_list (init ()) l" l H.(to_list (add_list (init ()) l));
+    aessl "add_list h []" hstr H.(to_list (add_list prebuilt []));
+    aessl "add_list h [k, v]"
+      (hstr @ [ ("a", "a1") ])
+      H.(to_list (add_list prebuilt [ ("a", "a1") ]));
+    aessl "add_list h l" (hstr @ l) H.(to_list (add_list prebuilt l))
 
-   TODO : Add more tests for this function !
-*)
-let compare_tests () =
-  Alcotest.(check int)
-    "Header.compare (Header.to_list l) (Header.add_list (Header.init ()) l) = 0"
-    0
-    (compare (of_list hstr) (add_list (init ()) hstr))
+  let add_multi_tests () =
+    let k, vals = ("a", [ "a1"; "a2"; "a3" ]) in
+    let l = List.map (fun v -> ("a", v)) vals in
+    aessl "add_multi (init ()) k []" [] H.(to_list (add_multi (init ()) k []));
+    aessl "add_multi (init ()) k vals" l
+      H.(to_list (add_multi (init ()) k vals));
+    aessl "add_multi h k []" hstr H.(to_list (add_multi prebuilt k []));
+    aessl "add_multi h k vals" (hstr @ l)
+      H.(to_list (add_multi prebuilt k vals))
 
-(*
-   TODO :
-  val of_list : (name * value) list -> t
-  val fold : (name -> value -> 'a -> 'a) -> 'a -> t -> 'a
-  val to_string : t -> string
+  let add_unless_exists_tests () =
+    let k, v = ("a", "a1") in
+    let k', v' = ("transfer-encoding", "chunked") in
+    let k'', v'' = ("accept", "text/*") in
+    aessl "add_unless_exists (init ()) k v" [ (k, v) ]
+      H.(to_list (add_unless_exists (init ()) k v));
+    aessl "add_unless_exists h k v when mem h k = false"
+      (hstr @ [ (k, v) ])
+      H.(to_list (add_unless_exists prebuilt k v));
+    aessl "add_unless_exists h k v when mem h k = true)" hstr
+      H.(to_list (add_unless_exists prebuilt k' v'));
+    aessl "add_unless_exists h k v when mem h k = true)" hstr
+      H.(to_list (add_unless_exists prebuilt k'' v''))
 
-  (* Incompatible definitions :
-        cohttp uses a function of type : name -> value list -> unit
-        httpaf uses a function of type : name -> value -> unit
-     val iter : (name -> value -> unit) -> t -> unit*)
-*)
+  let remove_tests () =
+    aessl "remove (init ()) k" [] H.(to_list (remove (init ()) "accept"));
+    aessl "remove (add (add (init ()) k v) k v) k" []
+      H.(to_list (remove (add (add (init ()) "k" "v") "k" "v") "k"));
+    aessl "remove h k when mem h k = false" hstr
+      H.(to_list (remove prebuilt "a"));
+    aessl "remove h k when mem h k = true"
+      [
+        ("accept", "application/xml");
+        ("accept", "text/html");
+        ("content-length", "100");
+      ]
+      H.(to_list (remove prebuilt "transfer-encoding"));
+    aessl "remove h k when mem h k = true"
+      [ ("transfer-encoding", "chunked"); ("content-length", "100") ]
+      H.(to_list (remove prebuilt "accept"))
+
+  let replace_tests () =
+    let k, v, v' = ("a", "a1", "a2") in
+    aessl "replace (init ()) k v" [ (k, v) ] H.(to_list (replace (init ()) k v));
+    aessl "replace (add (init ()) k v) k v" [ (k, v) ]
+      H.(to_list (replace (add (init ()) k v) k v));
+    aessl "replace (add (init ()) k v) k v'" [ (k, v') ]
+      H.(to_list (replace (add (init ()) k v) k v'));
+    aessl "replace h k v when mem h = false"
+      (hstr @ [ (k, v) ])
+      H.(to_list (replace prebuilt k v));
+    aessl "replace h k v when mem h = true"
+      [
+        ("accept", "application/xml");
+        ("transfer-encoding", "gzip");
+        ("accept", "text/html");
+        ("content-length", "100");
+      ]
+      H.(to_list (replace prebuilt "transfer-encoding" "gzip"));
+    aessl "replace h k v when mem h = true"
+      [
+        ("transfer-encoding", "chunked");
+        ("accept", "text/*");
+        ("content-length", "100");
+      ]
+      H.(to_list (replace prebuilt "accept" "text/*"))
+
+  let update_tests () = ()
+
+  let get_multi_tests () =
+    aesl "get_multi (init ()) k" [] H.(get_multi (init ()) "a");
+    aesl "get_multi h k when mem h k = false" [] H.(get_multi prebuilt "a");
+    aesl "get_multi h k when mem h k = true" [ "chunked" ]
+      H.(get_multi prebuilt "transfer-encoding");
+    aesl "get_multi h k when mem h k = true"
+      [ "application/xml"; "text/html" ]
+      H.(get_multi prebuilt "accept")
+
+  (* Change map and iter  type for (string -> string -> string) -> t ->
+     t )*)
+  let map_tests () =
+    let a = ", a" in
+    aessl "map (fun _ v -> v) (init ())" []
+      H.(to_list (map (fun _k v -> v) (init ())));
+    aessl "map (fun _ v -> v) (init ())" (H.to_list prebuilt)
+      H.(to_list (map (fun _k v -> v) prebuilt));
+    aessl "map (fun _ v -> v ^ a ) (init ())"
+      [
+        ("accept", "application/xml, a");
+        ("transfer-encoding", "chunked, a");
+        ("accept", "text/html, a");
+        ("content-length", "100, a");
+      ]
+      H.(to_list (map (fun _k v -> v ^ a) prebuilt))
+
+  let fold_tests () = ()
+
+  let iter_tests () = ()
+
+  let to_lines_tests () =
+    aesl "to_lines h"
+      [
+        "accept: application/xml\r\n";
+        "transfer-encoding: chunked\r\n";
+        "accept: text/html\r\n";
+        "content-length: 100\r\n";
+      ]
+      H.(to_lines prebuilt)
+
+  let to_frames_tests () =
+    aesl "to_frames h"
+      [
+        "accept: application/xml";
+        "transfer-encoding: chunked";
+        "accept: text/html";
+        "content-length: 100";
+      ]
+      H.(to_frames prebuilt)
+
+  let to_string_tests () =
+    aes "to_string h"
+      "accept: application/xml\r\n\
+       transfer-encoding: chunked\r\n\
+       accept: text/html\r\n\
+       content-length: 100\r\n\
+       \r\n"
+      H.(to_string prebuilt)
+
+  let tests name =
+    [
+      ( name ^ " - Unitary",
+        [
+          ("Header.to_list", `Quick, to_list_tests);
+          ("Header.is_empty", `Quick, is_empty_tests);
+          ("Header.init_with", `Quick, init_with_tests);
+          ("Header.mem", `Quick, mem_tests);
+          ("Header.add", `Quick, add_tests);
+          ("Header.get", `Quick, get_tests);
+          ("Header.add_list", `Quick, add_list_tests);
+          ("Header.add_multi", `Quick, add_multi_tests);
+          ("Header.add_unless_exists", `Quick, add_unless_exists_tests);
+          ("Header.remove", `Quick, remove_tests);
+          ("Header.replace", `Quick, replace_tests);
+          ("Header.get_multi", `Quick, get_multi_tests);
+          ("Header.to_lines", `Quick, to_lines_tests);
+          ("Header.to_frames", `Quick, to_frames_tests);
+          ("Header.to_string", `Quick, to_string_tests);
+          ("Header.map", `Quick, map_tests);
+          (*todo*)
+          ("Header.update", `Quick, update_tests);
+          ("Header.fold", `Quick, fold_tests);
+          ("Header.iter", `Quick, iter_tests);
+        ] );
+    ]
+end
+
+module TestMap = Unitary (Headers.HeadersMap)
+module TestAssoc = Unitary (Headers.HeadersAssoc)
+module TestAssocAlt = Unitary (Headers.HeadersAssocAlt)
 
 let tests =
-  [
-    ( "TODO",
-      [
-        ("Header.mem", `Quick, mem_tests);
-        ("Header.add and Header.get", `Quick, add_get_tests);
-        ( "Header.add_unless_exists and Header.get",
-          `Quick,
-          add_unless_exists_get_tests );
-        ("Header.add and Header.get_multi", `Quick, add_get_multi_tests);
-        ( "Header.add_multi and Header.get_multi",
-          `Quick,
-          add_multi_get_multi_tests );
-        ( "Header.add_list and Header.get_multi",
-          `Quick,
-          add_list_get_multi_tests );
-        ("Header.to_list", `Quick, to_list_tests);
-        ("Header.remove", `Quick, remove_mem_tests);
-        ("Header.replace", `Quick, replace_tests);
-        ("Header.compare and various invariants", `Quick, compare_tests);
-      ] );
-  ]
+  (*TestMap.tests "map" @*)
+  (*TestAssoc.tests "assoc" @*)
+  TestAssocAlt.tests "assocalt"
